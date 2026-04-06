@@ -622,4 +622,117 @@ mod tests {
 
         check_block_transactions(block);
     }
+
+    // big tx goes throuhg
+    #[test]
+    fn test_big_tx() {
+        let mut mempool = Mempool::new(100_000_000);
+
+        let mut tx = Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![bitcoin::TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_byte_array([1u8; 32]),
+                    vout: 0,
+                },
+                script_sig: bitcoin::Script::new().into(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: Vec::new(),
+        };
+
+        // add a bunch of outputs to get past 400k wu
+        for _ in 0..12000 {
+            tx.output.push(bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(1_000_000),
+                script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![0x51]),
+            });
+        }
+
+        assert!(tx.weight().to_wu() > 400_000);
+        assert!(mempool.accept_to_mempool(tx).is_ok());
+    }
+
+    // weird script, should be rejected but isnt
+    #[test]
+    fn test_weird_script() {
+        let mut mempool = Mempool::new(10_000_000);
+
+        // OP_2 OP_3 OP_ADD OP_5 OP_EQUAL
+        let tx = Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![bitcoin::TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_byte_array([1u8; 32]),
+                    vout: 0,
+                },
+                script_sig: bitcoin::Script::new().into(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000),
+                script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![0x52, 0x53, 0x93, 0x55, 0x87]),
+            }],
+        };
+        assert!(mempool.accept_to_mempool(tx).is_ok());
+    }
+
+    // submit same tx twice, both return ok
+    #[test]
+    fn test_dup() {
+        let mut mempool = Mempool::new(10_000_000);
+
+        let tx = Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![bitcoin::TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_byte_array([1u8; 32]),
+                    vout: 0,
+                },
+                script_sig: bitcoin::Script::new().into(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000),
+                script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![0x51]),
+            }],
+        };
+
+        assert!(mempool.accept_to_mempool(tx.clone()).is_ok());
+        assert!(mempool.accept_to_mempool(tx).is_ok()); // no error for dup
+    }
+
+    // no way to pass fee info so zero-fee tx goes through
+    #[test]
+    fn test_no_fee() {
+        let mut mempool = Mempool::new(10_000_000);
+
+        // outputs sum to 50k sats, we dont know input vals
+        // so if this is zero-fee it passes anyway
+        let tx = Transaction {
+            version: Version::ONE,
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![bitcoin::TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_byte_array([1u8; 32]),
+                    vout: 0,
+                },
+                script_sig: bitcoin::Script::new().into(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(50_000),
+                script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![0x51]),
+            }],
+        };
+
+        assert!(mempool.accept_to_mempool(tx).is_ok());
+    }
 }
